@@ -1,0 +1,22 @@
+passwd:
+  users:
+  - name: core
+    ssh_authorized_keys:
+      - sk-ssh-ed25519@openssh.com AAAAGnNrLXNzaC1lZDI1NTE5QG9wZW5zc2guY29tAAAAIaaaaaaaaaaaaaaaaaaaaaaaaaaa example@netbox.dev
+  - name: netbox
+    groups:
+      - wheel
+      - sudo
+    ssh_authorized_keys:
+      - sk-ssh-ed25519@openssh.com AAAAGnNrLXNzaC1lZDI1NTE5QG9wZW5zc2guY29tAAAAIaaaaaaaaaaaaaaaaaaaaaaaaaaa example@netbox.dev
+
+system:
+  hostname: netbox
+  domainname: netbox.dev
+  ip_address: 192.168.10.21
+  netmask: 24
+  gateway: 192.168.10.1
+  dns: 8.8.8.8;8.8.4.4;
+netbox:
+  enabled: true
+  vars:

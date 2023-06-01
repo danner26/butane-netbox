@@ -1,0 +1,152 @@
+variant: fcos
+version: 1.4.0
+passwd:
+  users:
+{%- for item in passwd.users %}
+  - name: {{ item.name }}
+{%- if item.system %}
+    system: true
+{%- endif  %}
+{%- if item.groups %}
+    groups:
+{%- for item in item.groups %}
+      - {{ item }}
+{%- endfor %}
+{%- endif %}
+{%- if item.ssh_authorized_keys %}
+    ssh_authorized_keys:
+{%- for item in item.ssh_authorized_keys %}
+      - {{ item }}
+{%- endfor %}
+{%- endif %}
+{%- endfor %}
+{%- if passwd.groups %}
+  groups:
+{%- for item in passwd.groups %}
+  - name: {{ item.name }}
+{%- endfor %}
+{%- endif %}
+
+storage:
+  directories:
+{%- if netbox.enabled %}
+  - path: /opt/netbox
+    mode: 0700
+    user:
+      name: root
+    group:
+      name: root
+{%- endif %}
+
+  files:
+  - path: /etc/hostname
+    mode: 0644
+    overwrite: true
+    contents:
+      inline: {{ system.hostname }}
+
+  - path: /etc/systemd/zram-generator.conf
+    mode: 0644
+    contents:
+      inline: |
+        # This config file enables a /dev/zram0 device with the default settings
+        [zram0]
+
+  - path: /etc/sysctl.d/20-silence-audit.conf
+    contents:
+      inline: |
+        # Raise console message logging level from DEBUG (7) to WARNING (4)
+        # so that audit messages don't get interspersed on the console that
+        # may frustrate a user trying to interactively log in.
+        kernel.printk=4
+
+  - path: /etc/zincati/config.d/99-disable-auto-updates.toml
+    mode: 0644
+    contents:
+      inline: |
+        [updates]
+        enabled = false
+
+  - path: /etc/NetworkManager/system-connections/ens192.nmconnection
+    mode: 0600
+    contents:
+      inline: |
+        [connection]
+        id=ens192
+        type=ethernet
+        interface-name=ens192
+        [ipv4]
+        address1={{ system.ip_address }}/{{ system.netmask }},{{ system.gateway }}
+        dns={{ system.dns }}
+        dns-search=
+        may-fail=false
+        method=manual
+
+systemd:
+  units:
+  - name: rpm-ostree-install.service
+    enabled: true
+    contents: |
+      [Unit]
+      Description=Layer RPMs
+      # We run after `systemd-machine-id-commit.service` to ensure that
+      # `ConditionFirstBoot=true` services won't rerun on the next boot.
+      After=systemd-machine-id-commit.service
+      After=network-online.target
+      ConditionPathExists=!/var/lib/rpm-ostree-install.stamp
+
+      [Service]
+      Type=oneshot
+      RemainAfterExit=yes
+      ExecStart=/usr/bin/rpm-ostree install --allow-inactive systemd-oomd-defaults qemu open-vm-tools git
+      ExecStart=/bin/touch /var/lib/rpm-ostree-install.stamp
+
+      [Install]
+      WantedBy=multi-user.target
+
+  - name: rpm-ostree-netbox-preflight.service
+    enabled: true
+    contents: |
+      [Unit]
+      Description=Layer RPMs
+      # We run after `systemd-machine-id-commit.service` to ensure that
+      # `ConditionFirstBoot=true` services won't rerun on the next boot.
+      After=rpm-ostree-install.service
+      After=systemd-machine-id-commit.service
+      After=network-online.target
+      ConditionPathExists=!/var/lib/rpm-ostree-netbox-preflight.stamp
+
+      [Service]
+      Type=oneshot
+      RemainAfterExit=yes
+      ExecStart=/usr/bin/rpm-ostree install --allow-inactive gcc libxml2-devel libxslt-devel libffi-devel libpq-devel openssl-devel redhat-rpm-config git
+      ExecStart=/bin/touch /var/lib/rpm-ostree-netbox-preflight.stamp
+
+      [Install]
+      WantedBy=multi-user.target
+
+  - name: netbox-preflight.service
+    enabled: true
+    contents: |
+      [Unit]
+      Description=Install NetBox repo
+      # We run after `systemd-machine-id-commit.service` to ensure that
+      # `ConditionFirstBoot=true` services won't rerun on the next boot.
+      After=rpm-ostree-netbox-preflight.service
+      After=rpm-ostree-install.service
+      After=systemd-machine-id-commit.service
+      After=network-online.target
+      ConditionPathExists=!/var/lib/netbox-preflight.stamp
+
+      [Service]
+      Type=oneshot
+      RemainAfterExit=yes
+      ExecStart=/usr/bin/git clone -b master --depth 1 https://github.com/netbox-community/netbox.git /opt/netbox/
+      ExecStart=/usr/bin/chown --recursive netbox /opt/netbox/netbox/media/
+      ExecStart=/usr/bin/chown --recursive netbox /opt/netbox/netbox/reports/
+      ExecStart=/usr/bin/chown --recursive netbox /opt/netbox/netbox/scripts/
+      ExecStart=/bin/touch /var/lib/netbox-preflight.stamp
+      ExecStart=/bin/systemctl --no-block reboot
+
+      [Install]
+      WantedBy=multi-user.target
